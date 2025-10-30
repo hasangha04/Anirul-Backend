@@ -1,8 +1,9 @@
 import requests
 import json
 import sys
+import os
 
-api_key = 'J5alAZmbjzuHwKEZ6_Hyk3j38rhlUNZy'
+api_key = os.environ.get("SUBDL_API_KEY")
 
 is_show = sys.argv[3] == "show"
 film_name = sys.argv[1]
