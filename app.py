@@ -1,8 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import subprocess
+import requests
 import os
 import json
+
+api_key = os.environ.get("SUBDL_API_KEY", "J5alAZmbjzuHwKEZ6_Hyk3j38rhlUNZy")
 
 app = Flask(__name__)
 CORS(app)
@@ -39,6 +42,14 @@ def search_subtitles():
     result = subprocess.run(search_args, capture_output=True, text=True)
 
     return jsonify({"results": result.stdout})
+
+@app.route("/search", methods=["GET"])
+def search():
+    headers = {'Accept': 'application/json'}
+    name = request.args.get("name")
+    base_url = f'http://api.subdl.com/api/v1/subtitles?api_key={api_key}&film_name={name}&languages=EN'
+    url = f'{base_url}&type=tv'  # if is_show else f'{base_url}&type=movie'
+    return requests.get(url, headers=headers, verify=False).json().get('results', [])
 
 if __name__ == "__main__":
     import os
