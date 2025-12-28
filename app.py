@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
 import subprocess
 import requests
 import os
 import json
 
+load_dotenv()
 api_key = os.environ.get("SUBDL_API_KEY")
 
 app = Flask(__name__)
