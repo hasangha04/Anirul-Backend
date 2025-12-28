@@ -7,6 +7,7 @@ import os
 import json
 
 load_dotenv()
+print(os.environ.get("SUBDL_API_KEY"))
 api_key = os.environ.get("SUBDL_API_KEY")
 
 app = Flask(__name__)
