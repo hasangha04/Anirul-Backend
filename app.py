@@ -5,7 +5,7 @@ import requests
 import os
 import json
 
-api_key = os.environ.get("SUBDL_API_KEY", "J5alAZmbjzuHwKEZ6_Hyk3j38rhlUNZy")
+api_key = os.environ.get("SUBDL_API_KEY")
 
 app = Flask(__name__)
 CORS(app)
@@ -47,7 +47,7 @@ def search_subtitles():
 def search():
     headers = {'Accept': 'application/json'}
     name = request.args.get("name")
-    base_url = f'http://api.subdl.com/api/v1/subtitles?api_key={api_key}&film_name={name}&languages=EN'
+    base_url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&film_name={name}&languages=EN'
     url = f'{base_url}&type=tv'  # if is_show else f'{base_url}&type=movie'
     return requests.get(url, headers=headers, verify=False).json().get('results', [])
 
