@@ -20,19 +20,21 @@ def search(directory, term):
         block = []
         for line in lines:
             if not line.strip():
-                if block: sections.append(block)
+                if block:
+                    sections.append(block)
                 block = []
             else:
-                block.append(line.strip())
-        if block: sections.append(block)
+                block.append(line)
+        if block:
+            sections.append(block)
 
         for section in sections:
             if len(section) < 3:
                 continue
             time = section[1]
-            text = " ".join(section[2:]).lower()
-            if term.lower() in text:
-                results.append(f"{fname} @ {time}\n{text}\n")
+            subtitle_text = "\n".join(section[2:])
+            if term.lower() in subtitle_text.lower():
+                results.append(f"{time} {subtitle_text}")
     return results
 
 if __name__ == "__main__":

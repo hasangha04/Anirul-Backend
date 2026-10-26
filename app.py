@@ -7,7 +7,6 @@ import os
 import json
 
 load_dotenv()
-print(os.environ.get("SUBDL_API_KEY"))
 api_key = os.environ.get("SUBDL_API_KEY")
 
 app = Flask(__name__)
@@ -22,25 +21,20 @@ def search_subtitles():
     data = request.get_json()
     folder = data["folder"]
     season = data["season"]
+    selection = data["selection"]
     query = data["query"]
     is_show = data["isShow"]
 
-    season_folder = f"Season {season}"
+    if is_show:
+        season_folder = f"Season {season}"
+    else:
+        season_folder = ""
     full_path = os.path.join(folder, season_folder)
     os.makedirs(full_path, exist_ok=True)
 
-    # 1. Run sub.py
-    sub_args = ["python", "sub.py", folder, season, "show" if is_show else "movie"]
-    subprocess.run(sub_args, check=True)
-
-    if not os.path.exists("selections.json"):
-        return jsonify({"error": "No subtitle selections found"}), 404
-
-    # 2. Run download.py (always select first option)
-    download_args = ["python", "download.py", full_path, "0"]
+    download_args = ["python", "download.py", full_path, selection, str(is_show)]
     subprocess.run(download_args, check=True)
 
-    # 3. Run search.py
     search_args = ["python", "search.py", os.path.join(folder, season_folder), query]
     result = subprocess.run(search_args, capture_output=True, text=True)
 
@@ -50,9 +44,45 @@ def search_subtitles():
 def search():
     headers = {'Accept': 'application/json'}
     name = request.args.get("name")
+    type = request.args.get("type")
     base_url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&film_name={name}&languages=EN'
-    url = f'{base_url}&type=tv'  # if is_show else f'{base_url}&type=movie'
+    url = f'{base_url}&type=tv' if type == "tv" else f'{base_url}&type=movie'
     return requests.get(url, headers=headers, verify=False).json().get('results', [])
+
+@app.route("/options", methods=["GET"])
+def options():
+    headers = {'Accept': 'application/json'}
+    value = request.args.get("value")
+    type = request.args.get("type")
+    idType = request.args.get("idType")
+
+    if type == "tv":
+        season = request.args.get("season")
+        if (idType == '1'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&imdb_id={value}&season_number={season}&type=tv&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
+        elif (idType == '2'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&sd_id={value}&season_number={season}&type=tv&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
+        elif (idType == '3'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&tmdb_id={value}&season_number={season}&type=tv&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
+    else:
+        if (idType == '1'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&imdb_id={value}&type=movie&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
+        elif (idType == '2'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&sd_id={value}&type=movie&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
+        elif (idType == '3'):
+            url = f'https://api.subdl.com/api/v1/subtitles?api_key={api_key}&tmdb_id={value}&type=movie&languages=EN'
+            res = requests.get(url, headers=headers).json()
+            return [s for s in res.get("subtitles", []) if s.get("episode") is None]
 
 if __name__ == "__main__":
     import os
