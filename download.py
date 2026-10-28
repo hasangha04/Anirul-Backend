@@ -1,11 +1,28 @@
 import os
 import sys
 import requests
-import json
 import zipfile
 import re
-import shutil
 import tempfile
+
+from dotenv import load_dotenv
+from pymongo import MongoClient
+
+load_dotenv()
+
+MONGODB_URI = os.getenv("MONGODB_URI")
+
+if not MONGODB_URI:
+    raise ValueError("MONGODB_URI is missing from .env")
+
+client = MongoClient(
+    MONGODB_URI,
+    serverSelectionTimeoutMS=15000
+)
+
+# Select the database and collection.
+db = client["Anirul"]
+subtitles = db["Subtitles"]
 
 def sanitize_filename(filename):
     invalid_chars = ['::', ':', '<', '>', '?', '*', '|', '"', '/', '\\']
@@ -18,65 +35,119 @@ def is_valid_srt(subtitle_file):
         first_line = next((line.strip() for line in file if line.strip()), "")
     return first_line == "1"
 
-def download_and_extract(url, dest_folder, filename, rename_subtitle=False):
-    os.makedirs(dest_folder, exist_ok=True)
+def download_and_store(url, title, is_movie, season_number=1):
     with tempfile.TemporaryDirectory() as temp_folder:
-        zip_path = os.path.join(temp_folder, filename + ".zip")
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            with open(zip_path, 'wb') as f:
-                for chunk in r.iter_content(8192):
-                    f.write(chunk)
-        with zipfile.ZipFile(zip_path, 'r') as z:
-            z.extractall(temp_folder)
+        zip_path = os.path.join(temp_folder,"subtitle.zip")
+
+        # Download the ZIP file temporarily.
+        with requests.get(url, stream=True, timeout=60) as response:
+            response.raise_for_status()
+
+            with open(zip_path, "wb") as file:
+                for chunk in response.iter_content(8192):
+                    if chunk:
+                        file.write(chunk)
+
+        # Extract files safely into temporary storage.
+        with zipfile.ZipFile(zip_path, "r") as zip_file:
+            temp_root = os.path.realpath(temp_folder)
+
+            for member in zip_file.infolist():
+                    if member.is_dir():
+                        continue
+
+                    target_path = os.path.realpath(os.path.join(temp_folder, member.filename))
+
+                    if os.path.commonpath([temp_root, target_path]) != temp_root: continue
+
+                    zip_file.extract(member, temp_folder)
 
         subtitle_files = []
         for root, _, files in os.walk(temp_folder):
-            subtitle_files.extend(
-                os.path.join(root, subtitle_file)
-                for subtitle_file in files
-                if subtitle_file.lower().endswith(".srt")
-                and is_valid_srt(os.path.join(root, subtitle_file))
-            )
+            for filename in files:
+                if filename.lower().endswith(".srt"):
+                    path = os.path.join(root, filename)
+
+                    if is_valid_srt(path):
+                        subtitle_files.append(path)
 
         if not subtitle_files:
             print("No valid SRT files found; nothing was saved.")
             return
 
-        if rename_subtitle:
-            season_match = re.search(r"season\s*(\d+)", os.path.basename(dest_folder), re.IGNORECASE)
-            season_number = int(season_match.group(1)) if season_match else 1
-            show_name = os.path.basename(os.path.dirname(os.path.normpath(dest_folder)))
-            show_name = sanitize_filename(show_name)
+        # Sort files to make fallback episode numbering predictable.
+        subtitle_files.sort()
 
-            for file_number, subtitle_file in enumerate(subtitle_files, start=1):
+        for file_number, subtitle_file in enumerate(
+            subtitle_files,
+            start=1
+        ):
+            episode_number = None
+
+            if is_movie:
+                filename = sanitize_filename(title) + ".srt"
+
+            else:
                 episode_match = re.search(
                     r"(?:s\d{1,2}[ ._-]*)?e(\d{1,3})|episode[ ._-]*(\d{1,3})",
                     os.path.basename(subtitle_file),
-                    re.IGNORECASE,
+                    re.IGNORECASE
                 )
-                episode_number = next(
-                    (group for group in episode_match.groups() if group),
-                    str(file_number),
-                ) if episode_match else str(file_number)
-                target_name = f"{show_name} S{season_number:02d}E{int(episode_number):02d}.srt"
-                target_path = os.path.join(dest_folder, sanitize_filename(target_name))
-                shutil.move(subtitle_file, target_path)
-        else:
-            folder_name = os.path.basename(os.path.normpath(dest_folder))
-            target_path = os.path.join(dest_folder, sanitize_filename(folder_name) + ".srt")
-            shutil.move(subtitle_files[0], target_path)
+
+                if episode_match:
+                    episode_number = int(next(group for group in episode_match.groups() if group))
+                else:
+                    episode_number = file_number
+
+                filename = (
+                    f"{sanitize_filename(title)} "
+                    f"S{season_number:02d}"
+                    f"E{episode_number:02d}.srt"
+                )
+
+            with open(subtitle_file,"r", encoding="utf-8-sig", errors="replace") as file:
+                content = file.read()
+
+            document = {
+                "filename": filename,
+                "title": title,
+                "content": content,
+                "type": "movie" if is_movie else "tv",
+            }
+
+            if not is_movie:
+                document["season"] = season_number
+                document["episode"] = episode_number
+
+            result = subtitles.insert_one(document)
+
+            print(
+                f"Saved {filename} to MongoDB "
+                f"(ID: {result.inserted_id})"
+            )
 
 if len(sys.argv) < 4:
-    print("Usage: python download.py <dest_folder> <index> <is_movie>")
+    print('Usage: python download.py "<title>" ''<index> <is_movie> [season_number]')
     sys.exit(1)
 
-dest_folder = sys.argv[1]
+title = sys.argv[1]
 choice = sys.argv[2]
-rename_subtitle = sys.argv[3]
-rename_subtitle = rename_subtitle.lower() == "true"
+is_movie = sys.argv[3].lower() == "true"
+
+season_number = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else 1
 
 url = f"https://dl.subdl.com/{choice}"
-name = sanitize_filename(choice)
 
-download_and_extract(url, dest_folder, name, rename_subtitle)
+try:
+    # Verify the database connection before downloading.
+    client.admin.command("ping")
+    print("Connected to MongoDB successfully!")
+
+    download_and_store(url, title, is_movie, season_number)
+
+except Exception as error:
+    print(f"Error: {error}")
+    sys.exit(1)
+
+finally:
+    client.close()

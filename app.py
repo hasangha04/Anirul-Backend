@@ -12,6 +12,69 @@ api_key = os.environ.get("SUBDL_API_KEY")
 app = Flask(__name__)
 CORS(app)
 
+DOWNLOADS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloaded.json")
+
+def get_downloaded_items():
+    if not os.path.exists(DOWNLOADS_FILE):
+        return []
+
+    try:
+        with open(DOWNLOADS_FILE, "r", encoding="utf-8") as file:
+            items = json.load(file)
+
+        if not isinstance(items, list):
+            return []
+
+        return [
+            item for item in items
+            if isinstance(item, dict)
+            and {"selection", "is_show", "season", "folder"}.issubset(item)
+        ]
+
+    except (json.JSONDecodeError, OSError):
+        return []
+
+def mark_item_downloaded(selection, is_show, idValue, season=None):
+    downloaded_items = get_downloaded_items()
+
+    new_item = {
+        "selection": str(selection),
+        "is_show": bool(is_show),
+        "season": int(season) if is_show else None,
+        "id": str(idValue)
+    }
+
+    # Avoid adding the same show season or movie twice.
+    downloaded_items = [
+        item for item in downloaded_items
+        if not (
+            str(item["selection"]) == str(selection)
+            and bool(item["is_show"]) == bool(is_show)
+            and item["season"] == new_item["season"]
+            and str(item["id"]) == str(idValue)
+        )
+    ]
+
+    downloaded_items.append(new_item)
+
+    with open(DOWNLOADS_FILE, "w", encoding="utf-8") as file:
+        json.dump(downloaded_items, file, indent=2)
+
+
+def is_item_downloaded(folder, is_show, idValue, season=None):
+    target_season = int(season) if is_show else None
+
+    for item in get_downloaded_items():
+        if (
+            str(item["name"]) == str(folder)
+            and bool(item["is_show"]) == bool(is_show)
+            and item["season"] == target_season
+            and str(item["id"]) == str(idValue)
+        ):
+            return True
+
+    return False
+
 @app.route("/")
 def home():
     return "Subtitle backend is live"
@@ -19,8 +82,9 @@ def home():
 @app.route("/search", methods=["POST"])
 def search_subtitles():
     data = request.get_json()
-    folder = data["folder"]
+    name = data["name"]
     season = data["season"]
+    idValue = data["id"]
     selection = data["selection"]
     query = data["query"]
     is_show = data["isShow"]
@@ -29,16 +93,20 @@ def search_subtitles():
         season_folder = f"Season {season}"
     else:
         season_folder = ""
-    full_path = os.path.join(folder, season_folder)
+    full_path = os.path.join(name, season_folder)
     os.makedirs(full_path, exist_ok=True)
 
-    download_args = ["python", "download.py", full_path, selection, str(is_show)]
-    subprocess.run(download_args, check=True)
 
-    search_args = ["python", "search.py", os.path.join(folder, season_folder), query]
-    result = subprocess.run(search_args, capture_output=True, text=True)
+    if not is_item_downloaded(name, is_show, idValue, season):
+        download_args = ["python", "download.py", name, selection, str( not is_show), str(season) if is_show else "1"]
+        subprocess.run(download_args, check=True)
+        mark_item_downloaded(name, is_show, idValue, season)
 
-    return jsonify({"results": result.stdout})
+    # search_args = ["python", "search.py", os.path.join(name, season_folder), query]
+    # result = subprocess.run(search_args, capture_output=True, text=True)
+
+    # return jsonify({"results": result.stdout})
+    return jsonify({"results": "Search functionality is currently disabled."})
 
 @app.route("/search", methods=["GET"])
 def search():
