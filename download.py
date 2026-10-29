@@ -35,7 +35,7 @@ def is_valid_srt(subtitle_file):
         first_line = next((line.strip() for line in file if line.strip()), "")
     return first_line == "1"
 
-def download_and_store(url, title, is_movie, season_number=1):
+def download_and_store(url, title, is_movie, idValue, season_number=1):
     with tempfile.TemporaryDirectory() as temp_folder:
         zip_path = os.path.join(temp_folder,"subtitle.zip")
 
@@ -113,6 +113,7 @@ def download_and_store(url, title, is_movie, season_number=1):
                 "title": title,
                 "content": content,
                 "type": "movie" if is_movie else "tv",
+                "id": idValue,
             }
 
             if not is_movie:
@@ -133,17 +134,17 @@ if len(sys.argv) < 4:
 title = sys.argv[1]
 choice = sys.argv[2]
 is_movie = sys.argv[3].lower() == "true"
+idValue = sys.argv[4]
 
-season_number = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else 1
+season_number = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[4] else 1
 
 url = f"https://dl.subdl.com/{choice}"
 
 try:
     # Verify the database connection before downloading.
     client.admin.command("ping")
-    print("Connected to MongoDB successfully!")
 
-    download_and_store(url, title, is_movie, season_number)
+    download_and_store(url, title, is_movie, idValue, season_number)
 
 except Exception as error:
     print(f"Error: {error}")

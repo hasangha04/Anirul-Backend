@@ -1,44 +1,71 @@
 import os
-import chardet
 import sys
+from pymongo import MongoClient
+from dotenv import load_dotenv
 
-def detect_encoding(file_path):
-    with open(file_path, 'rb') as f:
-        return chardet.detect(f.read())['encoding']
+load_dotenv()
+MONGODB_URI = os.getenv("MONGODB_URI")
 
-def search(directory, term):
+if not MONGODB_URI:
+    raise ValueError("MONGODB_URI is missing from .env")
+
+client = MongoClient(
+    MONGODB_URI,
+    serverSelectionTimeoutMS=15000
+)
+
+db = client["Anirul"]
+subtitles_collection = db["Subtitles"]
+
+client.admin.command("ping")
+
+def search(idValue, term):
     results = []
-    for fname in os.listdir(directory):
-        if not fname.endswith(".srt"):
+
+    for item in subtitles_collection.find({"id": str(idValue)}):
+        content = item.get("content", "")
+
+        # download.py saves the subtitle content as a string.
+        if not isinstance(content, str):
             continue
-        path = os.path.join(directory, fname)
-        encoding = detect_encoding(path)
-        with open(path, 'r', encoding=encoding) as f:
-            lines = f.read().splitlines()
+
+        # Split the subtitle content into individual lines.
+        lines = content.splitlines()
 
         sections = []
         block = []
+
+        # Separate the SRT file into subtitle blocks.
         for line in lines:
             if not line.strip():
                 if block:
                     sections.append(block)
-                block = []
+                    block = []
             else:
                 block.append(line)
+
+        # Include the last block if the file doesn't end with a blank line.
         if block:
             sections.append(block)
 
         for section in sections:
             if len(section) < 3:
                 continue
-            time = section[1]
+
+            timestamp = section[1]
             subtitle_text = "\n".join(section[2:])
-            if term.lower() in subtitle_text.lower():
-                results.append(f"{time} {subtitle_text}")
+
+            if term.casefold() in subtitle_text.casefold():
+                results.append(
+                    f"{item.get('title')} Season {item.get('season')} Episode {item.get('episode')}\n"
+                    f"{timestamp}\n"
+                    f"{subtitle_text}"
+                )
+
     return results
 
 if __name__ == "__main__":
-    directory = sys.argv[1]
+    idValue = sys.argv[1]
     term = sys.argv[2]
-    for match in search(directory, term):
+    for match in search(idValue, term):
         print(match)
