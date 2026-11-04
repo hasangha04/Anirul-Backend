@@ -5,6 +5,7 @@ from pymongo import MongoClient
 import subprocess
 import requests
 import os
+import json
 
 load_dotenv()
 api_key = os.environ.get("SUBDL_API_KEY")
@@ -51,28 +52,59 @@ def is_item_downloaded(name, is_show, idValue, season=None):
 def home():
     return "Subtitle backend is live"
 
-@app.route("/search", methods=["POST"])
-def search_subtitles():
+@app.route("/downloaded", methods=["GET"])
+def get_downloaded():
+    items = []
+    for item in downloaded.find():
+        items.append({
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "is_show": item.get("is_show"),
+            "season": item.get("season")
+        })
+    return jsonify(items)
+
+@app.route("/check", methods=["GET"])
+def check():
+    season = request.args.get("season")
+    idValue = request.args.get("id")
+
+    if downloaded.find_one({"id": str(idValue), "season": int(season) if season else None}):
+        return jsonify({"downloaded": True})
+    else:
+        return jsonify({"downloaded": False})
+
+@app.route("/add", methods=["POST"])
+def add_subtitles():
     data = request.get_json()
     name = data["name"]
     season = data["season"]
     idValue = data["id"]
     selection = data["selection"]
-    query = data["query"]
     is_show = data["isShow"]
 
     if not is_item_downloaded(name, is_show, idValue, season):
         download_args = ["python", "download.py", name, selection, str(not is_show), idValue, str(season) if is_show else "1"]
         subprocess.run(download_args, check=True)
         mark_item_downloaded(name, is_show, idValue, season)
-
-    search_args = ["python", "search.py", idValue, query]
-    result = subprocess.run(search_args, capture_output=True, text=True)
-
-    return jsonify({"results": result.stdout})
+    return jsonify({"message": "Download initiated"}), 200
 
 @app.route("/search", methods=["GET"])
 def search():
+    idValue = request.args.get("id")
+    query = request.args.get("query")
+
+    search_args = ["python", "search.py", idValue, query]
+    result = subprocess.run(search_args, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        return jsonify({"error": "Search failed", "details": result.stderr}), 500
+
+    results = json.loads(result.stdout)
+    return jsonify({"results": results}), 200
+
+@app.route("/subtitle", methods=["GET"])
+def subtitle():
     headers = {'Accept': 'application/json'}
     name = request.args.get("name")
     type = request.args.get("type")
