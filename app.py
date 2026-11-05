@@ -93,8 +93,13 @@ def add_subtitles():
 def search():
     idValue = request.args.get("id")
     query = request.args.get("query")
+    all = request.args.get("all").lower() == "true"
+    season = request.args.get("season")
 
-    search_args = ["python", "search.py", idValue, query]
+    search_args = ["python", "search.py", idValue, query, str(all)]
+
+    if season:
+        search_args.append(str(season)) 
     result = subprocess.run(search_args, capture_output=True, text=True)
     
     if result.returncode != 0:

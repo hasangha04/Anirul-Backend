@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -19,10 +20,22 @@ subtitles_collection = db["Subtitles"]
 
 client.admin.command("ping")
 
-def search(idValue, term):
+def search(idValue, term, checkAll, season=None):
     results = []
 
-    for item in subtitles_collection.find({"id": str(idValue)}):
+    if not checkAll:
+        search_filter = {
+            "id": str(idValue)
+        }
+
+        if season is not None:
+            search_filter["season"] = season
+
+        subtitles = subtitles_collection.find(search_filter)
+    else:
+        subtitles = subtitles_collection.find({})
+
+    for item in subtitles:
         content = item.get("content", "")
 
         # download.py saves the subtitle content as a string.
@@ -53,19 +66,32 @@ def search(idValue, term):
                 continue
 
             timestamp = section[1]
+            timestamp = " --> ".join(
+                timestamp_part.split(",")[0]
+                for timestamp_part in timestamp.split(" --> ")
+            )
             subtitle_text = "\n".join(section[2:])
 
             if term.casefold() in subtitle_text.casefold():
-                results.append(
-                    f"{item.get('title')} Season {item.get('season')} Episode {item.get('episode')}\n"
-                    f"{timestamp}\n"
-                    f"{subtitle_text}"
-                )
+                if (item.get("type") == "tv"):
+                    results.append(
+                        f"{item.get('title')} Season {item.get('season')} Episode {item.get('episode')}\n"
+                        f"{timestamp}\n"
+                        f"{subtitle_text}"
+                    )
+                else:
+                    results.append(
+                        f"{item.get('title')}\n"
+                        f"{timestamp}\n"
+                        f"{subtitle_text}"
+                    )
 
     return results
 
 if __name__ == "__main__":
     idValue = sys.argv[1]
     term = sys.argv[2]
-    for match in search(idValue, term):
-        print(match)
+    checkAll = sys.argv[3].lower() == "true"
+    season = int(sys.argv[4]) if len(sys.argv) > 4 else None
+    results = search(idValue, term, checkAll, season)
+    print(json.dumps(results))
